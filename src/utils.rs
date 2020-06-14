@@ -14,6 +14,14 @@ use cgmath;
 use std::io::BufRead;
 use std::path::Path;
 
+/// Returns all lines of the specified file.
+pub fn parse_list_file(file_name: &str) -> Vec<String> {
+    let list_file = std::fs::OpenOptions::new().read(true).write(false).open(file_name).unwrap();
+    let list_lines = std::io::BufReader::new(list_file).lines();
+
+    list_lines.map(|line| line.unwrap()).collect()
+}
+
 /// Returns (input files, translations, angles, scales) read from `file_name`.
 ///
 /// The specified file must be structured as follows:

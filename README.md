@@ -1,7 +1,7 @@
 # catetool - Image alignment for the Continental-America Telescopic Eclipse Experiment
 Copyright (c) 2020 Filip Szczerek <ga.software@yahoo.com>
 
-version 0.1.1 (2020-05-24)
+version 0.1.2 (2020-06-14)
 
 *This project is licensed under the terms of the MIT license (see the LICENSE file for details).*
 
@@ -39,8 +39,8 @@ For certain sites, intra-site alignment works only for a subset of images:
   - 044: `hdr_044_001_008.fits` - `hdr_044_497_504.fits`
   - 047: `hdr_047_001_008.fits` - `hdr_047_409_416.fits`
   - 056: `hdr_056_201_208.fits` - `hdr_056_281_288.fits`
-  
-Site 015 cannot be processed.  
+
+Site 015 cannot be processed.
 
 
 ## 2. Command-line options
@@ -196,6 +196,10 @@ $ scripts/align_sites.sh
 
 
 # 5. Change log
+
+**0.1.2** (2020-06-14)
+
+  - Added support for --input_list.
 
 **0.1.1** (2020-05-24)
 

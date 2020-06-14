@@ -56,7 +56,7 @@ fn mode_align_single_site(config: args::Configuration, logger: &Logger) {
     let background_threshold = config.background_threshold();
     let input_files: Vec<String> = match config.take_input_files() {
         InputFiles::CommandLineList(list) => list,
-        InputFiles::ListFile(_) => panic!("Not implemented yet.")
+        InputFiles::ListFile(list_file) => utils::parse_list_file(&list_file)
     };
 
     const REF_BLOCK_SIZE: u32 = 150;
@@ -199,7 +199,7 @@ fn mode_align_multiple_sites(config: args::Configuration, logger: &Logger) {
     let save_aligned = config.save_aligned();
     let input_files: Vec<String> = match config.take_input_files() {
         InputFiles::CommandLineList(list) => list,
-        InputFiles::ListFile(_) => panic!("Not implemented yet.")
+        InputFiles::ListFile(list_file) => utils::parse_list_file(&list_file)
     };
 
     let (disk_centers, angles, scales) = align::align_per_site_hdr_images(
