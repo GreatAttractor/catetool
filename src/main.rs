@@ -54,16 +54,17 @@ fn mode_align_single_site(config: args::Configuration, logger: &Logger) {
     let save_aligned_single_site = config.save_aligned();
     let exclude_moon_diameter = config.exclude_moon_diameter();
     let background_threshold = config.background_threshold();
+    let detrending_step = config.detrending_step();
+    let blk_match_threshold = config.blk_match_threshold();
     let input_files: Vec<String> = match config.take_input_files() {
         InputFiles::CommandLineList(list) => list,
         InputFiles::ListFile(list_file) => utils::parse_list_file(&list_file)
     };
 
     const REF_BLOCK_SIZE: u32 = 150;
-    const THRESHOLD: f32 = 15000.0;
 
     let translations = align::align_single_site_hdr_images(
-        &input_files, THRESHOLD, &ref_block_pos, REF_BLOCK_SIZE, &logger
+        &input_files, blk_match_threshold, &ref_block_pos, REF_BLOCK_SIZE, detrending_step, &logger
     );
     let angles: Vec<f32> = (0..translations.len()).into_iter().map(|_| 0.0).collect(); // all zeros
     let scales: Vec<f32> = (0..translations.len()).into_iter().map(|_| 1.0).collect(); // all ones

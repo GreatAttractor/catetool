@@ -32,6 +32,8 @@ pub mod cmdline {
     pub const EXCLUDE_MOON_DIAMETER: &str = "exclude_moon_diameter";
     pub const BACKGROUND_THRESHOLD:  &str = "background_threshold";
     pub const LOG_LEVEL:             &str = "log_level";
+    pub const DETRENDING_STEP:       &str = "detrending_step";
+    pub const BLK_MATCH_THRESHOLD:   &str = "blk_match_threshold";
 }
 
 #[derive(Debug)]
@@ -50,6 +52,8 @@ pub struct Configuration {
     save_aligned: bool,
     exclude_moon_diameter: Option<u32>,
     background_threshold: f32,
+    detrending_step: usize,
+    blk_match_threshold: f32,
     log_level: logging::Level
 }
 
@@ -62,6 +66,8 @@ impl Configuration {
     pub fn save_aligned(&self) -> bool { self.save_aligned }
     pub fn exclude_moon_diameter(&self) -> Option<u32> { self.exclude_moon_diameter }
     pub fn background_threshold(&self) -> f32 { self.background_threshold }
+    pub fn detrending_step(&self) -> usize { self.detrending_step }
+    pub fn blk_match_threshold(&self) -> f32 { self.blk_match_threshold }
     pub fn log_level(&self) -> logging::Level { self.log_level }
 }
 
@@ -170,6 +176,18 @@ r#"Command-line options:
 
       Chooses the amount of messages to print during processing.
 
+
+    --{} <value>
+
+      Sets brightness threshold for block matching. Default: 15000. Use lower values for sites with low image brightness.
+      Valid only when mode = {}.
+
+
+    --{} <value>
+
+      Sets the search step of translation detrending. Default: 10. Use lower values for sites with low image brightness.
+      Valid only when mode = {}.
+
 "#,
         cmdline::MODE_OF_OPERATION,
         Into::<&str>::into(ModeOfOperation::AlignSingleSite),
@@ -202,6 +220,12 @@ r#"Command-line options:
         Into::<&str>::into(logging::Level::Quiet),
         Into::<&str>::into(logging::Level::Info),
         Into::<&str>::into(logging::Level::Verbose),
+
+        cmdline::BLK_MATCH_THRESHOLD,
+        Into::<&str>::into(ModeOfOperation::AlignSingleSite),
+
+        cmdline::DETRENDING_STEP,
+        Into::<&str>::into(ModeOfOperation::AlignSingleSite),
     );
 }
 
@@ -243,7 +267,9 @@ pub fn parse_command_line<I: Iterator<Item=String>>(stream: I) -> Result<Option<
      cmdline::SAVE_ALIGNED,
      cmdline::EXCLUDE_MOON_DIAMETER,
      cmdline::BACKGROUND_THRESHOLD,
-     cmdline::LOG_LEVEL
+     cmdline::LOG_LEVEL,
+     cmdline::DETRENDING_STEP,
+     cmdline::BLK_MATCH_THRESHOLD
     ];
 
     // key: option name
@@ -382,6 +408,40 @@ pub fn parse_command_line<I: Iterator<Item=String>>(stream: I) -> Result<Option<
         }
     };
 
+    let detrending_step = {
+        match get_option_value::<usize>(cmdline::DETRENDING_STEP, &option_values) {
+            Err(_) => return Err(()),
+
+            Ok(Some(val)) => if mode != ModeOfOperation::AlignSingleSite {
+                eprintln!("Unexpected option {} (mode is not {}).",
+                    cmdline::DETRENDING_STEP, Into::<&str>::into(ModeOfOperation::AlignSingleSite)
+                );
+                return Err(());
+            } else {
+                val
+            },
+
+            Ok(None) => 10
+        }
+    };
+
+    let blk_match_threshold = {
+        match get_option_value::<f32>(cmdline::BLK_MATCH_THRESHOLD, &option_values) {
+            Err(_) => return Err(()),
+
+            Ok(Some(val)) => if mode != ModeOfOperation::AlignSingleSite {
+                eprintln!("Unexpected option {} (mode is not {}).",
+                    cmdline::BLK_MATCH_THRESHOLD, Into::<&str>::into(ModeOfOperation::AlignSingleSite)
+                );
+                return Err(());
+            } else {
+                val
+            },
+
+            Ok(None) => 15000.0
+        }
+    };
+
     let log_level = get_option_value::<logging::Level>(cmdline::LOG_LEVEL, &option_values)?
         .unwrap_or(logging::Level::Info);
 
@@ -394,6 +454,8 @@ pub fn parse_command_line<I: Iterator<Item=String>>(stream: I) -> Result<Option<
         save_aligned,
         exclude_moon_diameter,
         background_threshold,
+        detrending_step,
+        blk_match_threshold,
         log_level
     }))
 }
@@ -431,7 +493,7 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site"
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite)
             ].iter().map(|s| s.to_string())
         );
         assert!(config.is_err());
@@ -442,7 +504,7 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite),
                 as_opt!(cmdline::INPUT_FILES)
             ].iter().map(|s| s.to_string())
         );
@@ -454,7 +516,7 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite),
                 as_opt!(cmdline::INPUT_LIST)
             ].iter().map(|s| s.to_string())
         );
@@ -466,7 +528,7 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite),
                 as_opt!(cmdline::INPUT_LIST), "mylist.txt",
                 as_opt!(cmdline::INPUT_FILES), "file1", "file2"
             ].iter().map(|s| s.to_string())
@@ -479,7 +541,7 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite),
                 as_opt!(cmdline::INPUT_LIST)
             ].iter().map(|s| s.to_string())
         );
@@ -491,7 +553,7 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite),
                 as_opt!(cmdline::INPUT_FILES), "file1", "file2", "file3",
                 as_opt!(cmdline::REF_BLOCK_POS), "1", "2"
             ].iter().map(|s| s.to_string())
@@ -507,7 +569,7 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite),
                 as_opt!(cmdline::INPUT_FILES), "file1", "file2", "file3"
             ].iter().map(|s| s.to_string())
         );
@@ -519,7 +581,7 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite),
                 as_opt!(cmdline::INPUT_FILES), "file1", "file2", "file3",
                 as_opt!(cmdline::REF_BLOCK_POS), "1", "2"
             ].iter().map(|s| s.to_string())
@@ -543,7 +605,7 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite),
                 as_opt!(cmdline::INPUT_FILES), "file1", "file2", "file3",
                 as_opt!(cmdline::REF_BLOCK_POS), "1", "2",
                 as_opt!(cmdline::SAVE_ALIGNED), "BAD"
@@ -557,7 +619,7 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite),
                 as_opt!(cmdline::INPUT_FILES), "file1", "file2", "file3",
                 as_opt!(cmdline::REF_BLOCK_POS), "1", "2",
                 as_opt!(cmdline::SAVE_ALIGNED), "yes"
@@ -568,12 +630,38 @@ mod tests {
         let config = parse_command_line(
             [
                 "binary",
-                as_opt!(cmdline::MODE_OF_OPERATION), "single-site",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignSingleSite),
                 as_opt!(cmdline::INPUT_FILES), "file1", "file2", "file3",
                 as_opt!(cmdline::REF_BLOCK_POS), "1", "2",
                 as_opt!(cmdline::SAVE_ALIGNED), "no"
             ].iter().map(|s| s.to_string())
         );
         assert_eq!(false, config.unwrap().unwrap().save_aligned());
+    }
+
+    #[test]
+    fn given_detrending_step_and_not_single_site_mode_fail() {
+        let config = parse_command_line(
+            [
+                "binary",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignMultipleSites),
+                as_opt!(cmdline::INPUT_FILES), "file1", "file2", "file3",
+                as_opt!(cmdline::DETRENDING_STEP), "5"
+            ].iter().map(|s| s.to_string())
+        );
+        assert!(config.is_err());
+    }
+
+    #[test]
+    fn given_blk_match_threshold_and_not_single_site_mode_fail() {
+        let config = parse_command_line(
+            [
+                "binary",
+                as_opt!(cmdline::MODE_OF_OPERATION), Into::<&str>::into(ModeOfOperation::AlignMultipleSites),
+                as_opt!(cmdline::INPUT_FILES), "file1", "file2", "file3",
+                as_opt!(cmdline::BLK_MATCH_THRESHOLD), "10.0"
+            ].iter().map(|s| s.to_string())
+        );
+        assert!(config.is_err());
     }
 }

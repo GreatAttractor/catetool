@@ -453,6 +453,7 @@ pub fn align_single_site_hdr_images(
     brightness_threshold: f32,
     ref_block_pos: &Vector2::<i32>,
     ref_block_size: u32,
+    detrending_step: usize,
     logger: &Logger
 ) -> Vec<Vector2<f32>> {
 
@@ -497,14 +498,13 @@ pub fn align_single_site_hdr_images(
     // Counter this by finding the translation between every `STEP` images and modifying
     // the translations between accordingly.
 
-    const STEP: usize = 10;
     let mut corrections = vec![Vector2::<f32>::zero()];
     let mut total_correction = Vector2::<f32>::zero();
     prev_img = load_for_alignment(&file_names[0]);
     let mut prev_cumulative = cumulative_t[0];
     let file_count = file_names.len();
-    for i in (0..file_count).step_by(STEP).skip(1).chain(
-        if (file_count - 1) % STEP == 0 { 1..=0 /*empty*/ } else { file_count - 1..=file_count - 1 /*last element*/ }
+    for i in (0..file_count).step_by(detrending_step).skip(1).chain(
+        if (file_count - 1) % detrending_step == 0 { 1..=0 /*empty*/ } else { file_count - 1..=file_count - 1 /*last element*/ }
     ) {
        let curr_img = load_for_alignment(&file_names[i]);
        let translation = comp::find_translation_vector_subpixel2::<f32, _>(
@@ -523,21 +523,21 @@ pub fn align_single_site_hdr_images(
     }
 
     let mut detrended_translations = vec![translations[0]];
-    for i in (0..translations.len()).step_by(STEP) {
-        let correction_chunk_len = (i+STEP).min(translations.len() - 1) - i;
+    for i in (0..translations.len()).step_by(detrending_step) {
+        let correction_chunk_len = (i + detrending_step).min(translations.len() - 1) - i;
         if correction_chunk_len == 0 {
             break;
         }
 
-        let correction = corrections[i / STEP + 1];
+        let correction = corrections[i / detrending_step + 1];
 
         let delta = correction / correction_chunk_len as f32;
         for j in i + 1 .. i + 1 + correction_chunk_len {
-            if do_not_detrend_from.is_none() || j < do_not_detrend_from.unwrap() {
-                detrended_translations.push(translations[j] + delta);
-            } else {
+             if do_not_detrend_from.is_none() || j < do_not_detrend_from.unwrap() {
+                 detrended_translations.push(translations[j] + delta);
+             } else {
                 detrended_translations.push(translations[j]);
-            }
+             }
         }
     }
 

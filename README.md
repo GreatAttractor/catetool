@@ -1,7 +1,7 @@
 # catetool - Image alignment for the Continental-America Telescopic Eclipse Experiment
 Copyright (c) 2020 Filip Szczerek <ga.software@yahoo.com>
 
-version 0.1.2 (2020-06-14)
+version 0.1.3 (2020-08-15)
 
 *This project is licensed under the terms of the MIT license (see the LICENSE file for details).*
 
@@ -196,6 +196,10 @@ $ scripts/align_sites.sh
 
 
 # 5. Change log
+
+**0.1.3** (2020-08-15)
+
+  - Additional command-line options to enable alignment of low-brightness sites.
 
 **0.1.2** (2020-06-14)
 
