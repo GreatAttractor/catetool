@@ -176,7 +176,6 @@ fn mode_use_precalc_values(config: args::Configuration, logger: &Logger) {
                 logger.verbose(&format!("saving: {}", output_file_name));
                 image.save(&output_file_name, image::FileType::Fits).unwrap();
 
-                //TESTING #################
                 align::normalize_pixel_values(image.clone(), 100.0).convert_pix_fmt(image::PixelFormat::Mono8, None)
                      .save(&(output_file_name + ".bmp"), image::FileType::Bmp).unwrap();
             }
@@ -205,8 +204,8 @@ fn mode_align_multiple_sites(config: args::Configuration, logger: &Logger) {
 
     let (disk_centers, angles, scales) = align::align_per_site_hdr_images(
         &input_files,
-        730,
-        903,
+        740,
+        None,
         align::HoughParams::default(),
         &logger
     );
@@ -241,7 +240,6 @@ fn mode_align_multiple_sites(config: args::Configuration, logger: &Logger) {
                 logger.verbose(&format!("saving: {}", output_file_name));
                 image.save(&output_file_name, image::FileType::Fits).unwrap();
 
-                // TESTING #############
                 align::scale_and_clip_pixel_values(image.clone(), 1.0, 1.0).convert_pix_fmt(image::PixelFormat::Mono8, None)
                      .save(&(output_file_name + ".bmp"), image::FileType::Bmp).unwrap();
             }

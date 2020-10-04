@@ -1,6 +1,6 @@
 [package]
 name = "catetool"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Filip Szczerek <ga.software@yahoo.com>"]
 edition = "2018"
 license = "MIT"

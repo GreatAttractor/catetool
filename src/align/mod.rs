@@ -36,13 +36,40 @@ impl Default for HoughParams {
             disk_radius: 676,
             brightness_threshold: 0.75,
             work_image_size: 512,
-            peak_search_area_size: 30,
+            peak_search_area_size: 100,//30,
         }
     }
 }
 
+/// Returns the largest possible radius of a ring which fits in `image1` when at `center1`
+/// and in `image2` when at `center2`.
+fn get_max_possible_ring_radius(image1: &Image, center1: &Vector2<f32>, image2: &Image, center2: &Vector2<i32>) -> i32 {
+    *[
+        center1.x as u32,
+        image1.width() - 1 - center1.x as u32,
+        center1.y as u32,
+        image1.height() - 1 - center1.y as u32,
+
+        center2.x as u32,
+        image2.width() - 1 - center2.x as u32,
+        center2.y as u32,
+        image2.height() - 1 - center2.y as u32
+    ].iter().min().unwrap() as i32
+}
+
 /// Returns relative angle and scale between `image1` and `image2` and refined position of `center2`
 /// that matches `center1`.
+///
+/// # Parameters
+///
+/// * `image1` - First image.
+/// * `center1` - Solar disk center in `image1`.
+/// * `image2` - Second image.
+/// * `center2` - Estimated solar disk center in `image2`.
+/// * `ring_r_inner` - Inner radius (in pixels) of comparison ring; should cover the stacked lunar disks.
+/// * `ring_r_outer_max` - Max allowed outer radius (in pixels) of comparison ring; if `None`, the largest possible
+///     ring will be used (i.e., a ring that fits in both images).
+/// * `logger` - Message logger.
 ///
 /// Images must be `PixelFormat::Mono32f`.
 ///
@@ -51,7 +78,8 @@ fn match_disk_center_angle_scale(
     center1: &Vector2<f32>,
     image2: &Image,
     center2: &Vector2<i32>,
-    ring: &comp::RingMask,
+    ring_r_inner: i32,
+    ring_r_outer_max: Option<i32>,
     logger: &Logger
 ) -> (f32, f32, Vector2<f32>) {
     const COARSE_ANGLE_STEP: f32 = 3.0 * std::f32::consts::PI / 180.0;
@@ -62,19 +90,18 @@ fn match_disk_center_angle_scale(
     // images are about 2500 pixels wide; this step amounts to max. 0.25 pixel of movement for aligned images
     const SCALE_REFINEMENT_STEP: f32 = 0.0002;
 
-    let mut scale = 1.0;
+    let scale;
 
+    const TRANSLATION_SEARCH_RADIUS: f32 = 16.0;
     const TRANSLATION_REFINEMENT_STEP: f32 = 0.1;
 
-    let center1_rounded = comp::to_f32(&comp::to_i32(&center1));
-    let image1_fract_translated = comp::translate_pixels::<f32, _>(
-        image1,
-        ring,
-        &comp::to_i32(center1),
-        &(center1_rounded - center1)
+    let max_possible_r_outer = get_max_possible_ring_radius(image1, center1, image2, center2) - comp::MARGIN;
+    let ring = comp::RingMask::new(
+        ring_r_inner,
+        max_possible_r_outer.min(ring_r_outer_max.unwrap_or(max_possible_r_outer))
     );
-    let image1_mono8 = image1_fract_translated.convert_pix_fmt(PixelFormat::Mono8, None);
 
+    let image1_mono8 = image1.convert_pix_fmt(PixelFormat::Mono8, None);
     let image2_mono8 = image2.convert_pix_fmt(PixelFormat::Mono8, None);
 
     // initial coarse search for the relative angle
@@ -91,40 +118,52 @@ fn match_disk_center_angle_scale(
     );
     logger.verbose(&format!("initial angle estimation: {:.0}°", &angle.to_degrees()));
 
-    let mut refined_center2 = comp::to_f32(&center2);
+    let mut refined_center1 = *center1;
 
     // refinement: derotation + translation
     const MAX_REFINEMENT_ITERS: usize = 16;
     let mut iter = 0;
     let mut prev_angle = angle;
     loop {
+        let max_possible_r_outer = get_max_possible_ring_radius(
+            &image1_mono8,
+            &refined_center1,
+            &image2_mono8,
+            &center2
+        ) - TRANSLATION_SEARCH_RADIUS as i32 - comp::MARGIN;
+
+        let ring = comp::RingMask::new(
+            ring_r_inner,
+            max_possible_r_outer.min(ring_r_outer_max.unwrap_or(max_possible_r_outer))
+        );
+
         let (new_angle, rotated) = comp::find_relative_angle(
             &image1_mono8,
             &image2_mono8,
-            &comp::to_i32(&center1),
-            &refined_center2,
+            &comp::to_i32(&refined_center1),
+            &comp::to_f32(&center2),
             angle - ANGLE_REFINEMENT_RANGE,
             angle + ANGLE_REFINEMENT_RANGE,
             ANGLE_REFINEMENT_STEP,
             1.0,
-            ring
+            &ring
         );
 
         angle = new_angle;
 
         let translation = comp::find_translation_vector_subpixel2::<u8, _>(
-            &image1_mono8,
             &rotated,
-            &comp::to_i32(&center1),
-            &refined_center2,
-            ring,
-            16.0,
+            &image1_mono8,
+            &center2,
+            &refined_center1,
+            &ring,
+            TRANSLATION_SEARCH_RADIUS,
             4.0,
             TRANSLATION_REFINEMENT_STEP,
             0.0
-        ) - (center1_rounded - center1);
+        );
 
-        refined_center2 += translation;
+        refined_center1 += translation;
 
         logger.verbose(&format!(
             "refined angle: {:>6.2}°, translation: ({:>6.2}, {:>6.2})",
@@ -137,15 +176,15 @@ fn match_disk_center_angle_scale(
             translation.y.abs() <= TRANSLATION_REFINEMENT_STEP &&
             (prev_angle - angle).abs() < ANGLE_REFINEMENT_STEP {
 
-            scale = comp::find_relative_scale(
-                &image1_mono8,
+            scale = 1.0 / comp::find_relative_scale(
                 &rotated,
-                &comp::to_i32(&center1),
-                &refined_center2,
+                &image1_mono8,
+                &center2,
+                &refined_center1,
                 1.0 - SCALE_REFINEMENT_RANGE,
                 1.0 + SCALE_REFINEMENT_RANGE,
                 SCALE_REFINEMENT_STEP,
-                ring
+                &ring
             );
             logger.verbose(&format!("scale: {:.4}", scale));
 
@@ -155,7 +194,7 @@ fn match_disk_center_angle_scale(
         prev_angle = angle;
     }
 
-    (angle, scale, refined_center2)
+    (angle, scale, comp::to_f32(center2) - (refined_center1 - center1))
 }
 
 /// Image must be `PixelFormat::Mono32f`.
@@ -199,9 +238,10 @@ fn estimate_disk_center_position(image: &Image, hough_params: &HoughParams) -> V
 ///
 /// # Parameters
 ///
-/// * `file_names` - Input file names in chronological order.
+/// * `file_names` - Input file names in alignment order.
 /// * `ring_r_inner` - Inner radius (in pixels) of comparison ring; should cover the stacked lunar disks.
-/// * `ring_r_outer` - Outer radius (in pixels) of comparison ring; must fit within each image.
+/// * `ring_r_outer_max` - Max allowed outer radius (in pixels) of comparison ring; if `None`, the largest possible
+///     ring will be used for each image pair (i.e., a ring that fits in both images).
 /// * `hough_params` - Parameters of circle Hough transform used to initially estimate disk center's position.
 ///
 /// Returns (disk centers, angles relative to first image, scales relative to the first image).
@@ -209,12 +249,10 @@ fn estimate_disk_center_position(image: &Image, hough_params: &HoughParams) -> V
 pub fn align_per_site_hdr_images(
     file_names: &[String],
     ring_r_inner: i32,
-    ring_r_outer: i32,
+    ring_r_outer_max: Option<i32>,
     hough_params: HoughParams,
     logger: &Logger
 ) -> (Vec<Vector2<f32>>, Vec<f32>, Vec<f32>) {
-    let ring = comp::RingMask::new(ring_r_inner, ring_r_outer);
-
     let mut prev_image = Image::load(&file_names[0], image::FileType::Auto).unwrap();
     let mut prev_disk_center = comp::to_f32(&estimate_disk_center_position(&prev_image, &hough_params));
 
@@ -236,7 +274,8 @@ pub fn align_per_site_hdr_images(
             &prev_disk_center,
             &image,
             &estimated_disk_center,
-            &ring,
+            ring_r_inner,
+            ring_r_outer_max,
             logger
         );
 

@@ -1,7 +1,7 @@
 # catetool - Image alignment for the Continental-America Telescopic Eclipse Experiment
 Copyright (c) 2020 Filip Szczerek <ga.software@yahoo.com>
 
-version 0.1.3 (2020-08-15)
+version 0.1.4 (2020-10-04)
 
 *This project is licensed under the terms of the MIT license (see the LICENSE file for details).*
 
@@ -119,6 +119,18 @@ Specifies the brightness threshold of sky background used with `exclude_moon_dia
 
 Chooses the amount of messages to print during processing.
 
+```
+--blk_match_threshold <value>
+```
+
+Sets brightness threshold for block matching. Default: 15000. Use lower values for sites with low image brightness. Valid only when mode = `single-site`.
+
+```
+--detrending_step <value>
+```
+
+Sets the search step of translation detrending. Default: 10. Use lower values for sites with low image brightness. Valid only when mode = `single-site`.
+
 
 ## 3. Scripts
 
@@ -196,6 +208,10 @@ $ scripts/align_sites.sh
 
 
 # 5. Change log
+
+**0.1.4** (2020-10-04)
+
+  - Improved alignment in multi-site mode.
 
 **0.1.3** (2020-08-15)
 

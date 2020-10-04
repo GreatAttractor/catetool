@@ -21,7 +21,7 @@ use rayon::prelude::*;
 mod fft;
 pub mod filter;
 
-/// Margin (in pixels) expected for bilinear interpolation during rotation.
+/// Margin (in pixels) expected for bilinear interpolation.
 pub const MARGIN: i32 = 3;
 
 pub struct Disk {
@@ -378,7 +378,7 @@ pub fn scale_ring<T: Any + Copy + Default + Into<f32> + FromF32>(
 ) -> Image {
     assert!(image.pixel_format() == get_matching_mono_format::<T>());
 
-    assert!(ring.is_inside_rect(&Point{ x: center.x as i32, y: center.y as i32 }, image.width(), image.height(), MARGIN));
+    assert!(ring.is_inside_rect(&image.img_rect().inflate(-MARGIN), &to_i32(center)));
 
     let src_pixels = image.pixels::<T>();
     let src_values_per_line = image.values_per_line::<T>();
@@ -427,7 +427,7 @@ pub fn rotate_ring<T: Any + Copy + Default + Into<f32> + FromF32>(
 ) -> Image {
     assert!(image.pixel_format() == get_matching_mono_format::<T>());
 
-    assert!(ring.is_inside_rect(&Point{ x: center.x as i32, y: center.y as i32 }, image.width(), image.height(), MARGIN));
+    assert!(ring.is_inside_rect(&image.img_rect().inflate(-MARGIN), &to_i32(center)));
 
     let rot: Basis2<f32> = Rotation2::from_angle(Rad(-angle as f32));
 
@@ -437,6 +437,8 @@ pub fn rotate_ring<T: Any + Copy + Default + Into<f32> + FromF32>(
     let mut output = Image::new(image.width(), image.height(), None, get_matching_mono_format::<T>(), None, true);
     let dest_values_per_line = output.values_per_line::<T>();
     let dest_pixels = output.pixels_mut::<T>();
+
+    // Note: using unchecked accesses below has barely any effect on the performance.
 
     for p in ring.points().iter() {
         // perform bilinear interpolation in `source` at the location corresponding to `x`, `y`
@@ -476,7 +478,10 @@ pub struct RingMask {
 
 impl PixelMask for RingMask {
     fn is_inside_rect(&self, rect: &Rect, mask_pos: &Vector2<i32>) -> bool {
-        self.is_inside_rect(&to_point(&mask_pos), rect.width, rect.height, 0)
+        mask_pos.x - self.r_outer >= rect.x &&
+        mask_pos.x + self.r_outer < rect.x + rect.width as i32 &&
+        mask_pos.y - self.r_outer >= rect.y &&
+        mask_pos.y + self.r_outer < rect.y as i32 + rect.height as i32
     }
 
     fn points(&self) -> &[Vector2<i32>] { &self.points }
@@ -514,13 +519,6 @@ impl RingMask {
     pub fn r_outer(&self) -> i32 { self.r_outer }
 
     pub fn points(&self) -> &[Vector2<i32>] { &self.points }
-
-    pub fn is_inside_rect(&self, center: &Point, width: u32, height: u32, margin: i32) -> bool {
-        center.x - self.r_outer >= margin &&
-        center.x + self.r_outer < width as i32 - margin &&
-        center.y - self.r_outer >= margin &&
-        center.y + self.r_outer < height as i32 - margin
-    }
 }
 
 /// List of points belonging to a rectangle with disk cut out at (0, 0).
@@ -617,7 +615,7 @@ fn check_scale(
     scale: f32,
     ring: &RingMask
 ) -> (f64, Image) {
-    assert!(ring.is_inside_rect(&to_point(&to_i32(&center2)), img2.width(), img2.height(), MARGIN));
+    assert!(ring.is_inside_rect(&img2.img_rect().inflate(-MARGIN), &to_i32(center2)));
 
     let scaled = scale_ring::<u8>(&img2, &center2, scale, ring);
     let sum_diff = calc_sum_of_abs_diffs_subpixel::<u8, _>(img1, &scaled, ring, center1, center2, 0.0);
@@ -678,7 +676,7 @@ fn check_rotation_angle(
     scale2: f32,
     ring: &RingMask
 ) -> (f64, Image) {
-    assert!(ring.is_inside_rect(&to_point(&to_i32(&center2)), img2.width(), img2.height(), MARGIN));
+    assert!(ring.is_inside_rect(&img2.img_rect().inflate(-MARGIN), &to_i32(center2)));
 
     let rotated = rotate_ring::<u8>(&img2, angle, &center2, scale2, ring);
 
@@ -1010,11 +1008,16 @@ fn calc_sum_of_abs_diffs_subpixel<T, M>(
 ) -> f64
 where T: Any + Copy + Default + Into<f32>, M: PixelMask + Sync {
 
+    assert!(mask.is_inside_rect(&image1.img_rect(), pos1));
+    assert!(mask.is_inside_rect(&image2.img_rect().inflate(-MARGIN), &to_i32(pos2)));
+
     let pixels1 = image1.pixels::<T>();
     let values_per_line_1 = image1.values_per_line::<T>();
 
     let pixels2 = image2.pixels::<T>();
     let values_per_line_2 = image2.values_per_line::<T>();
+
+    // Note: using unchecked accesses below has barely any effect on the performance.
 
     let sum_diff: f64 = mask.points().iter().fold(0.0, |sum, p| {
         let value1 = Into::<f32>::into(pixels1[(p.x + pos1.x) as usize + (p.y + pos1.y) as usize * values_per_line_1]);
@@ -1097,8 +1100,6 @@ where T: Any + Copy + Default + Into<f32>, M: PixelMask + Sync {
 
     assert!(search_radius > 0.0 && initial_step > 0.0 && min_step > 0.0);
 
-    //TODO: add some assertions about mask being inside images +-search radius
-
     struct SearchRange {
         pub xmin: f32,
         pub ymin: f32,
@@ -1171,7 +1172,7 @@ pub fn scale_and_clip_pixel_values(mut image: Image, scale: f32, max: f32) -> Im
 
 /// Brings all pixel values to [0.0, 1.0], scales by `scale` > 0, and clips to [0.0, 1.0].
 #[must_use]
-pub fn normalize_pixel_values(mut image: Image, scale: f32) -> Image {
+pub fn normalize_pixel_values(image: Image, scale: f32) -> Image {
     assert!(image.pixel_format() == PixelFormat::Mono32f);
 
     let min = *image.pixels::<f32>().iter().min_by(|a, b|
@@ -1377,9 +1378,8 @@ fn fit_circle_to_points(points: &Vec<Vector2<f32>>, radius: f32) -> Vector2<f32>
 }
 
 #[must_use]
-pub fn translate_pixels<T, M>(image: &Image, mask: &M, mask_pos: &Vector2<i32>, translation: &Vector2<f32>) -> Image
-where T: Any + Copy + Default + Into<f32> + FromF32,
-      M: PixelMask {
+pub fn translate_pixels<T>(image: &Image, translation: &Vector2<f32>) -> Image
+where T: Any + Copy + Default + Into<f32> + FromF32 {
 
     assert!(image.pixel_format() == get_matching_mono_format::<T>());
 
@@ -1387,33 +1387,44 @@ where T: Any + Copy + Default + Into<f32> + FromF32,
     let src_values_per_line = image.values_per_line::<T>();
 
     let mut output = Image::new(image.width(), image.height(), None, get_matching_mono_format::<T>(), None, true);
-    let dest_values_per_line = output.values_per_line::<T>();
-    let dest_pixels = output.pixels_mut::<T>();
 
-    for p in mask.points().iter() {
-        // perform bilinear interpolation in `source` at the location corresponding to `x`, `y`
-        let Vector2{ x: src_x, y: src_y } = to_f32(&(p + mask_pos)) - translation;
+    let y_min = (translation.y as i32 + MARGIN)
+        .max(MARGIN);
+    let y_max = (translation.y as i32 + image.height() as i32 - MARGIN)
+        .min(image.height() as i32 - MARGIN);
 
-        let src_x_lo = src_x.floor() as usize;
-        let src_y_lo = src_y.floor() as usize;
+    let x_min = (translation.x as i32 + MARGIN)
+        .max(MARGIN);
+    let x_max = (translation.x as i32 + image.width() as i32 - MARGIN)
+        .min(image.width() as i32 - MARGIN);
 
-        let tx = src_x.fract() as f32;
-        let ty = src_y.fract() as f32;
+    for dest_y in y_min..y_max {
+        let dest_line = output.line_mut::<T>(dest_y as u32);
+        for (dest_x, dest_val) in dest_line.iter_mut().skip(x_min as usize).take((x_max - x_min) as usize).enumerate() {
 
-        let v_00 = src_pixels[src_x_lo +     src_y_lo * src_values_per_line];
-        let v_10 = src_pixels[src_x_lo + 1 + src_y_lo * src_values_per_line];
+            // perform bilinear interpolation in `image` at the location corresponding to `x`, `y`
+            let src_x = dest_x as f32 - translation.x;
+            let src_y = dest_y as f32 - translation.y;
 
-        let v_11 = src_pixels[src_x_lo + 1 + (src_y_lo + 1) * src_values_per_line];
-        let v_01 = src_pixels[src_x_lo +     (src_y_lo + 1) * src_values_per_line];
+            let src_x_lo = src_x.floor() as usize;
+            let src_y_lo = src_y.floor() as usize;
 
-        dest_pixels[(p.x + mask_pos.x) as usize +
-                    (p.y + mask_pos.y) as usize * dest_values_per_line
-        ] = FromF32::from_f32(
-            Into::<f32>::into(v_00) * (1.0 - tx) * (1.0 - ty) +
-            Into::<f32>::into(v_10) * tx         * (1.0 - ty) +
-            Into::<f32>::into(v_11) * tx         * ty +
-            Into::<f32>::into(v_01) * (1.0 - tx) * ty
-        );
+            let tx = src_x.fract() as f32;
+            let ty = src_y.fract() as f32;
+
+            let v_00 = src_pixels[src_x_lo +     src_y_lo * src_values_per_line];
+            let v_10 = src_pixels[src_x_lo + 1 + src_y_lo * src_values_per_line];
+
+            let v_11 = src_pixels[src_x_lo + 1 + (src_y_lo + 1) * src_values_per_line];
+            let v_01 = src_pixels[src_x_lo +     (src_y_lo + 1) * src_values_per_line];
+
+            *dest_val = FromF32::from_f32(
+                Into::<f32>::into(v_00) * (1.0 - tx) * (1.0 - ty) +
+                Into::<f32>::into(v_10) * tx         * (1.0 - ty) +
+                Into::<f32>::into(v_11) * tx         * ty +
+                Into::<f32>::into(v_01) * (1.0 - tx) * ty
+            );
+        }
     }
 
     output

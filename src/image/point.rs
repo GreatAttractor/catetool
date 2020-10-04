@@ -146,4 +146,13 @@ impl Rect {
 
 
     pub fn get_pos(&self) -> Point { Point{ x: self.x, y: self.y } }
+
+    pub fn inflate(&self, margin: i32) -> Rect {
+        Rect{
+            x: self.x - margin,
+            y: self.y - margin,
+            width: (self.width as i32 + 2 * margin) as u32,
+            height: (self.height as i32 + 2 * margin) as u32
+        }
+    }
 }
